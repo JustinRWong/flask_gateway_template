@@ -1,0 +1,46 @@
+# Reference: https://cloud.google.com/build/docs/build-config-file-schema
+steps:
+# Build to GCR (google container registry)
+- name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+  args: ['gcloud', 'builds', 'submit', '-t', '${_IMAGE_TAG}']
+# Deploy to Google Cloud Run
+- name: 'gcr.io/cloud-builders/gcloud'
+  entrypoint: 'bash'
+  args: ['-c',
+        'gcloud run deploy ${_CLOUD_RUN_DEPLOYMENT_NAME}
+         --image=${_IMAGE_TAG} --platform=${_DEPLOY_FLAG_PLATFORM}
+         --region=${_DEPLOY_FLAG_REGION}
+         --ingress=${_DEPLOY_FLAG_INGRESS}
+         --set-cloudsql-instances=$$DEPLOY_FLAG_SET_CLOUDSQL_INSTANCES
+         --set-env-vars=${_DEPLOY_FLAG_SET_ENV_VARS}
+         --clear-vpc-connector
+         --allow-unauthenticated']
+  # replace above with below if database is needed to use the `--set-cloudsql-instances` flag
+  # this task will also require creating a secret for the CLOUDSQL_instance name and using the secret manager to pass the database instance name
+  # args: ['-c', 'gcloud run deploy ${_CLOUD_RUN_DEPLOYMENT_NAME} --image=${_IMAGE_TAG} --platform=${_DEPLOY_FLAG_PLATFORM} --region=${_DEPLOY_FLAG_REGION} --ingress=${_DEPLOY_FLAG_INGRESS} --set-cloudsql-instances=$$DEPLOY_FLAG_SET_CLOUDSQL_INSTANCES --clear-vpc-connector']
+  # secretEnv: ['DEPLOY_FLAG_SET_CLOUDSQL_INSTANCES']
+substitutions:
+  # Variables for cloud build image to be built and deployment name
+  _BRANCH_ENV_PREFIX: ${BRANCH_NAME%/*} # removes all characters after first '/'
+  _BRANCH_NAME_SUFFIX: ${BRANCH_NAME#*/} # removes all characters before first '/'
+  # Specifies path path in gcr (google container registry)
+  _IMAGE_TAG: 'gcr.io/${PROJECT_ID}/${REPO_NAME}/${BRANCH_NAME}'  # gcr.io/[project]/[repo-name]/[env]/[branch]
+  # The DEPLOYMENT_NAME must
+  # - use only lowercase alphanumeric characters and dashes,
+  # - cannot begin or end with a dash, and
+  # - cannot be longer than 63 characters.
+  _CLOUD_RUN_DEPLOYMENT_NAME: '${REPO_NAME}-${_BRANCH_ENV_PREFIX}-${_BRANCH_NAME_SUFFIX}' # [repo-name]-[env]-[branch]
+  # Deploy flags. See options at https://cloud.google.com/sdk/gcloud/reference/beta/run/deploy
+  _DEPLOY_FLAG_PLATFORM: 'managed'
+  _DEPLOY_FLAG_REGION: 'us-central1'
+  _DEPLOY_FLAG_INGRESS: 'all'
+  _DEPLOY_FLAG_SET_ENV_VARS: 'SQLALCHEMY_DATABASE_URI=sqlite://,APP_SETTINGS=config.ProductionConfig'
+  # _CLOUDSQL_INSTANCES_VERSION: '1' # used for DEPLOY_FLAG_SET_CLOUDSQL_INSTANCES
+# Secret manager. See https://cloud.google.com/build/docs/securing-builds/use-secrets
+# availableSecrets:
+#   secretManager:
+#   - versionName: projects/${PROJECT_NUMBER}/secrets/${_BRANCH_ENV_PREFIX}-cloudsql-connection/versions/${_CLOUDSQL_INSTANCES_VERSION}
+#     env: 'DEPLOY_FLAG_SET_CLOUDSQL_INSTANCES'
+options:
+  logging: CLOUD_LOGGING_ONLY
+  dynamic_substitutions: true
